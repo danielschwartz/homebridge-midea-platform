@@ -9,7 +9,7 @@
 import type { Logger } from 'homebridge';
 import type { DeviceInfo } from '../../core/MideaConstants.js';
 import MideaDevice, { type DeviceAttributeBase } from '../../core/MideaDevice.js';
-import { type Config, type DeviceConfig, SwingAngle } from '../../platformUtils.js';
+import { ACMode, type Config, type DeviceConfig, SwingAngle } from '../../platformUtils.js';
 import {
   MessageACResponse,
   MessageGeneralSet,
@@ -90,14 +90,7 @@ export default class MideaACDevice extends MideaDevice {
     0: 'Off',
   };
 
-  readonly FAN_RELATED_MODES = [
-    'BOOST_MODE',
-    'SLEEP_MODE',
-    'FROST_PROTECT',
-    'COMFORT_MODE',
-    'ECO_MODE',
-    'COMFORT_SLEEP_MODE',
-  ];
+  readonly FAN_RELATED_MODES = ['BOOST_MODE', 'SLEEP_MODE', 'FROST_PROTECT', 'COMFORT_MODE', 'ECO_MODE', 'COMFORT_SLEEP_MODE'];
 
   public attributes: ACAttributes;
 
@@ -110,6 +103,7 @@ export default class MideaACDevice extends MideaDevice {
 
   private alternate_switch_display = false;
   private last_fan_speed = AUTO_FAN_SPEED; // default to Auto
+  private last_mode: number = ACMode.COOLING;
 
   private defaultFahrenheit: boolean;
   private defaultScreenOff: boolean;
@@ -125,7 +119,7 @@ export default class MideaACDevice extends MideaDevice {
     this.attributes = {
       PROMPT_TONE: false,
       POWER: undefined,
-      MODE: 0,
+      MODE: ACMode.COOLING,
       TARGET_TEMPERATURE: 0,
       FAN_SPEED: 0,
       SWING_VERTICAL: undefined, // invalid
@@ -441,7 +435,7 @@ export default class MideaACDevice extends MideaDevice {
 
   private disable_all_fan_related_modes(message: MessageGeneralSet | MessageSubProtocolSet) {
     // Check if any fan-related mode is currently active
-    const anyModeActive = this.FAN_RELATED_MODES.some(mode => this.attributes[mode]);
+    const anyModeActive = this.FAN_RELATED_MODES.some((mode) => this.attributes[mode]);
     if (!anyModeActive) {
       return; // No modes active, nothing to do
     }
@@ -449,25 +443,20 @@ export default class MideaACDevice extends MideaDevice {
     this.logger.debug(`[${this.name}] Disabling all fan-related modes`);
 
     // Disable all modes in the message
-    message.sleep_mode = false;
     message.boost_mode = false;
+    message.sleep_mode = false;
+    message.frost_protect = false;
+    message.comfort_mode = false;
     message.eco_mode = false;
-
-    if (message instanceof MessageGeneralSet) {
-      message.frost_protect = false;
-      message.comfort_mode = false;
-      message.comfort_sleep_mode = false;
-    }
+    message.comfort_sleep_mode = false;
 
     // Update attributes
-    this.attributes.SLEEP_MODE = false;
     this.attributes.BOOST_MODE = false;
+    this.attributes.SLEEP_MODE = false;
+    this.attributes.FROST_PROTECT = false;
+    this.attributes.COMFORT_MODE = false;
     this.attributes.ECO_MODE = false;
-    if (message instanceof MessageGeneralSet) {
-      this.attributes.FROST_PROTECT = false;
-      this.attributes.COMFORT_MODE = false;
-      this.attributes.COMFORT_SLEEP_MODE = false;
-    }
+    this.attributes.COMFORT_SLEEP_MODE = false;
   }
 
   async set_fan_auto(fan_auto: boolean) {
@@ -484,6 +473,22 @@ export default class MideaACDevice extends MideaDevice {
     message.fan_speed = fan_speed;
     this.attributes.FAN_SPEED = fan_speed;
     this.attributes.FAN_AUTO = fan_auto;
+    await this.build_send(message);
+  }
+
+  async set_dry_mode(state: boolean) {
+    this.logger.info(`[${this.name}] Set dry mode to: ${state}`);
+    const message = this.make_message_unique_set();
+    if (state) {
+      this.last_mode = this.attributes.MODE;
+      message.mode = ACMode.DRY;
+      message.power = true;
+      this.attributes.MODE = ACMode.DRY;
+      this.attributes.POWER = true;
+    } else {
+      message.mode = this.last_mode;
+      this.attributes.MODE = this.last_mode;
+    }
     await this.build_send(message);
   }
 
@@ -506,7 +511,7 @@ export default class MideaACDevice extends MideaDevice {
 
     // enabling a mode
     if (state) {
-      const anyModeActive = this.FAN_RELATED_MODES.some(m => this.attributes[m]);
+      const anyModeActive = this.FAN_RELATED_MODES.some((m) => this.attributes[m]);
 
       // If enabling a mode and no mode was previously active, save current fan speed
       if (!anyModeActive) {
@@ -526,7 +531,7 @@ export default class MideaACDevice extends MideaDevice {
     message[mode.toLowerCase()] = false;
     this.attributes[mode] = false;
 
-    const willAllModesBeOff = this.FAN_RELATED_MODES.every(m => !this.attributes[m]);
+    const willAllModesBeOff = this.FAN_RELATED_MODES.every((m) => !this.attributes[m]);
 
     // restore fan speed
     if (willAllModesBeOff && this.last_fan_speed !== undefined) {
