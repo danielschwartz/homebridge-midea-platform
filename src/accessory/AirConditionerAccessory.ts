@@ -861,7 +861,11 @@ export default class AirConditionerAccessory extends BaseAccessory<MideaACDevice
   }
 
   async setDryMode(value: CharacteristicValue) {
-    await this.device.set_dry_mode(!!value);
+    if (value) {
+      await this.device.set_attribute({ POWER: true, MODE: ACMode.DRY });
+    } else {
+      await this.device.set_attribute({ POWER: false });
+    }
   }
 
   getBoostMode(): CharacteristicValue {

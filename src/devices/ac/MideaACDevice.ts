@@ -103,7 +103,6 @@ export default class MideaACDevice extends MideaDevice {
 
   private alternate_switch_display = false;
   private last_fan_speed = AUTO_FAN_SPEED; // default to Auto
-  private last_mode: number = ACMode.COOLING;
 
   private defaultFahrenheit: boolean;
   private defaultScreenOff: boolean;
@@ -473,22 +472,6 @@ export default class MideaACDevice extends MideaDevice {
     message.fan_speed = fan_speed;
     this.attributes.FAN_SPEED = fan_speed;
     this.attributes.FAN_AUTO = fan_auto;
-    await this.build_send(message);
-  }
-
-  async set_dry_mode(state: boolean) {
-    this.logger.info(`[${this.name}] Set dry mode to: ${state}`);
-    const message = this.make_message_unique_set();
-    if (state) {
-      this.last_mode = this.attributes.MODE;
-      message.mode = ACMode.DRY;
-      message.power = true;
-      this.attributes.MODE = ACMode.DRY;
-      this.attributes.POWER = true;
-    } else {
-      message.mode = this.last_mode;
-      this.attributes.MODE = this.last_mode;
-    }
     await this.build_send(message);
   }
 
